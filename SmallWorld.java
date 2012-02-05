@@ -44,9 +44,7 @@ public class SmallWorld {
 	public static final String DENOM_PATH = "denom.txt";
 
 	// Example enumerated type, used by EValue and Counter example
-	public static enum ValueUse {
-		EDGE, VERTEX, FINDROOT
-	}; // remove
+	public static enum ValueUse {VISITED}; // remove
 
 	// Example writable type
 	public static class EValue implements Writable {
@@ -199,6 +197,7 @@ public class SmallWorld {
 			if (!hist.contains(dest) && hist.size > 0 && hist.size <= 20) {
 				hist.add(dest);
 				context.write(new LongWritable(dest), new StateWritable(-1, hist));
+				context.getCounter(ValueUse.VISITED).increment(1);
 			}
 			else {
 				context. write(key, new StateWritable(dest, new HashSet<Long>));
@@ -210,15 +209,17 @@ public class SmallWorld {
 			Reducer<LongWritable, StateWritable, LongWritable, StateWritable> {
 		public void reduce(LongWritable key, Iterable<StateWritable> values,
 				Context context) throws IOException, InterruptedException {
-			long d = 0;
+			ArrayList<HashSet<Long>> hists = new ArrayList<HashSet<Long>>;
+			ArrayList<Long> dests = new ArrayList<Long>;
+			
 			for (StateWritable value : values) {
-				if (value.dist > -1 && value.dist < d)
-					d = value.dist;
+				if (value.dest > 0) dests.add(value.dest);
+				if (value.hist.size() > 0) hists.add(value.hist);
 			}
-			for (StateWritable value : values) {
-				if (value.dest > -1) {
-					context.write(key, new StateWritable(d, value.dest,
-							value.state));
+			
+			for (long dest : dests) {
+				for (HashSet<Long> hist : hists) {
+					context.write(key, new StateWritable(dest, hist));
 				}
 			}
 		}
