@@ -9,6 +9,7 @@
  */
 
 import java.io.BufferedReader;
+
 import java.io.BufferedWriter;
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -35,6 +36,7 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
 import org.apache.hadoop.mapreduce.lib.output.SequenceFileOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
+import org.apache.hadoop.io.SequenceFile;
 
 public class SmallWorld {
 	// Maximum depth for any breadth-first search
@@ -43,49 +45,16 @@ public class SmallWorld {
 	// Skeleton code uses this to share denom cmd-line arg across cluster
 	public static final String DENOM_PATH = "denom.txt";
 
-	// Example enumerated type, used by EValue and Counter example
-	public static enum ValueUse {VISITED}; // remove
-
-	// Example writable type
-	public static class EValue implements Writable {
-		public ValueUse use;
-		public long value;
-
-		public EValue(ValueUse use, long value) {
-			this.use = use;
-			this.value = value;
-		}
-
-		public EValue() {
-			this(ValueUse.EDGE, 0);
-		}
-
-		// Serializes object - needed for Writable
-		public void write(DataOutput out) throws IOException {
-			out.writeUTF(use.name());
-			out.writeLong(value);
-		}
-
-		// Deserializes object - needed for Writable
-		public void readFields(DataInput in) throws IOException {
-			use = ValueUse.valueOf(in.readUTF());
-			value = in.readLong();
-		}
-
-		public void set(ValueUse use, long value) {
-			this.use = use;
-			this.value = value;
-		}
-
-		public String toString() {
-			return use.name() + ": " + value;
-		}
-	}
+	// Counter for visited nodes in each bfs iteration
+	public static enum ValueUse {
+		VISITED
+	};
 
 	// Custom Writable subclass to keep track of nodes visited in the past.
 	public static class StateWritable implements Writable {
 		public long dest;
-		public HashSet<Long> hist; // guaranteed to have size<20; even smaller
+		public HashSet<Long> hist; // guaranteed to have size<MAX_ITERATIONS;
+									// even smaller
 									// on average due to small world property
 
 		public StateWritable(long dest, HashSet<Long> hist) {
@@ -194,7 +163,7 @@ public class SmallWorld {
 				throws IOException, InterruptedException {
 			long dest = value.dest;
 			HashSet<Long> hist = value.hist;
-			if (!hist.contains(dest) && hist.size > 0 && hist.size <= 20) {
+			if (!hist.contains(dest) && hist.size > 0 && hist.size <= MAX_ITERATIONS) {
 				hist.add(dest);
 				context.write(new LongWritable(dest), new StateWritable(-1, hist));
 				context.getCounter(ValueUse.VISITED).increment(1);
@@ -283,12 +252,12 @@ public class SmallWorld {
 			job.setJarByClass(SmallWorld.class);
 
 			job.setMapOutputKeyClass(LongWritable.class);
-			job.setMapOutputValueClass(LongWritable.class);
+			job.setMapOutputValueClass(StateWritable.class);
 			job.setOutputKeyClass(LongWritable.class);
-			job.setOutputValueClass(LongWritable.class);
+			job.setOutputValueClass(StateWritable.class);
 
-			job.setMapperClass(Mapper.class);
-			job.setReducerClass(Reducer.class);
+			job.setMapperClass(BFSMap.class);
+			job.setReducerClass(BFSReduce.class);
 
 			job.setInputFormatClass(SequenceFileInputFormat.class);
 			job.setOutputFormatClass(SequenceFileOutputFormat.class);
@@ -303,27 +272,10 @@ public class SmallWorld {
 			i++;
 		}
 
-		// Mapreduce config for histogram computation
-		job = new Job(conf, "hist");
-		job.setJarByClass(SmallWorld.class);
-
-		job.setMapOutputKeyClass(LongWritable.class);
-		job.setMapOutputValueClass(LongWritable.class);
-		job.setOutputKeyClass(LongWritable.class);
-		job.setOutputValueClass(LongWritable.class);
-
-		job.setMapperClass(Mapper.class);
-		job.setCombinerClass(Reducer.class);
-		job.setReducerClass(Reducer.class);
-
-		job.setInputFormatClass(SequenceFileInputFormat.class);
-		job.setOutputFormatClass(TextOutputFormat.class);
-
-		// By declaring i above outside of loop conditions, can use it
-		// here to get last bfs output to be input to histogram
-		FileInputFormat.addInputPath(job, new Path("bfs-" + i + "-out"));
-		FileOutputFormat.setOutputPath(job, new Path(args[1]));
-
-		job.waitForCompletion(true);
+		// Hapoop the histogram into a file.
+		writer = new SequenceFile.Writer(FileSystem.get(conf), conf, "./output.txt", Long, Long);
+		for (long i=0; i<histogram.size(); i++) {
+			writer.append(i, ArrayList.get(i));
+		}
 	}
 }
