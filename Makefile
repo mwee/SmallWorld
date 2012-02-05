@@ -35,5 +35,9 @@ classes:
 
 clean:
 	rm -rf classes $(TARGET) *-out
+	
+test:
+	rm -rf bfs-*/
+	hadoop jar sw.jar SmallWorld ~cs61c/p1data/ring4.seq . 3
 
 .PHONY: clean all
