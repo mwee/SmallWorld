@@ -194,7 +194,14 @@ public class SmallWorld {
 			Mapper<LongWritable, StateWritable, LongWritable, StateWritable> {
 		public void map(LongWritable key, StateWritable value, Context context)
 				throws IOException, InterruptedException {
-			if ()
+			long dest = value.dest;
+			HashSet<Long> hist = value.hist;
+			if (!hist.contains(dest) && hist.size > 0 && hist.size <= 20) {
+				hist.add(dest);
+				context.write(new LongWritable(dest), new StateWritable(-1, hist));
+			}
+			else {
+				context. write(key, new StateWritable(dest, new HashSet<Long>));
 			}
 		}
 	}
