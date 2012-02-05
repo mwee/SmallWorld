@@ -63,7 +63,7 @@ public class SmallWorld {
 		}
 
 		public StateWritable(long dest) {
-    		this(dest, new HashSet<Long>);
+    		this(dest, new HashSet<Long>());
     	}
 
 		public StateWritable() {
@@ -89,7 +89,7 @@ public class SmallWorld {
 		public void readFields(DataInput in) throws IOException {
     		dest = in.readLong();
     		int size = in.readLong();
-    		hist = new HashSet<Long>;
+    		hist = new HashSet<Long>();
     		for (int i=0; i<size; i++) {
     			hist.add(in.readLong());
     		}
@@ -134,7 +134,7 @@ public class SmallWorld {
 		public void map(LongWritable key, LongWritable dest, Context context)
                 throws IOException, InterruptedException {
         	if (Math.random() < 1.0 / denom) {
-        		HashSet<Long> root = new HashSet<Long>;
+        		HashSet<Long> root = new HashSet<Long>();
         		root.add(key.get());
         		context.write(key, new StateWritable(dest.get(), root));
         	}
@@ -169,7 +169,7 @@ public class SmallWorld {
 				context.getCounter(ValueUse.VISITED).increment(1);
 			}
 			else {
-				context. write(key, new StateWritable(dest, new HashSet<Long>));
+				context. write(key, new StateWritable(dest, new HashSet<Long>()));
 			}
 		}
 	}
@@ -178,8 +178,8 @@ public class SmallWorld {
 			Reducer<LongWritable, StateWritable, LongWritable, StateWritable> {
 		public void reduce(LongWritable key, Iterable<StateWritable> values,
 				Context context) throws IOException, InterruptedException {
-			ArrayList<HashSet<Long>> hists = new ArrayList<HashSet<Long>>;
-			ArrayList<Long> dests = new ArrayList<Long>;
+			ArrayList<HashSet<Long>> hists = new ArrayList<HashSet<Long>>();
+			ArrayList<Long> dests = new ArrayList<Long>();
 			
 			for (StateWritable value : values) {
 				if (value.dest > 0) dests.add(value.dest);
@@ -245,7 +245,7 @@ public class SmallWorld {
 
 		// Repeats your BFS mapreduce
 		int i = 0;
-		ArrayList<Long> histogram = new ArrayList<Long>;
+		ArrayList<Long> histogram = new ArrayList<Long>();
 		// Will need to change terminating conditions to respond to data
 		while (i < MAX_ITERATIONS) {
 			job = new Job(conf, "bfs" + i);
