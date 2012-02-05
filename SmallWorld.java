@@ -257,12 +257,12 @@ public class SmallWorld {
 		job.setJarByClass(SmallWorld.class);
 
 		job.setMapOutputKeyClass(LongWritable.class);
-		job.setMapOutputValueClass(LongWritable.class);
+		job.setMapOutputValueClass(StateWritable.class);
 		job.setOutputKeyClass(LongWritable.class);
-		job.setOutputValueClass(LongWritable.class);
+		job.setOutputValueClass(StateWritable.class);
 
-		job.setMapperClass(LoaderMap.class);
-		job.setReducerClass(Reducer.class);
+		job.setMapperClass(FormatMap.class);
+		job.setReducerClass(FormatReduce.class);
 
 		job.setInputFormatClass(SequenceFileInputFormat.class);
 		job.setOutputFormatClass(SequenceFileOutputFormat.class);
@@ -274,15 +274,11 @@ public class SmallWorld {
 		// Actually starts job, and waits for it to finish
 		job.waitForCompletion(true);
 
-		// Example of reading a counter
-		System.out.println("Read in "
-				+ job.getCounters().findCounter(ValueUse.EDGE).getValue()
-				+ " edges");
-
 		// Repeats your BFS mapreduce
 		int i = 0;
+		ArrayList<Long> histogram = new ArrayList<Long>;
 		// Will need to change terminating conditions to respond to data
-		while (i < 1) {
+		while (i < MAX_ITERATIONS) {
 			job = new Job(conf, "bfs" + i);
 			job.setJarByClass(SmallWorld.class);
 
@@ -303,6 +299,7 @@ public class SmallWorld {
 					+ "-out"));
 
 			job.waitForCompletion(true);
+			histogram.add(job.getCounters().findCounter(ValueUse.VISITED).getValue());
 			i++;
 		}
 
