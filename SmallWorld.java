@@ -58,7 +58,7 @@ public class SmallWorld {
 									// on average due to small world property
 
 		public StateWritable(long dest, HashSet<Long> hist) {
-			this.dist = dist;
+			this.dest = dest;
 			this.hist = hist;
 		}
 
@@ -66,8 +66,12 @@ public class SmallWorld {
     		this(dest, new HashSet<Long>());
     	}
 
+		public StateWritable(HashSet<Long> hist) {
+			this(-1L, hist);
+		}
+		
 		public StateWritable() {
-			this(-1L);
+			this(-1L, new HashSet<Long>());
 		}
 
 		public void setDest(long dest) {
@@ -80,7 +84,7 @@ public class SmallWorld {
 
 		public void write(DataOutput out) throws IOException {
 			out.writeLong(dest);
-			out.writeLong(hist.size());
+			out.writeInt(hist.size());
 			for (long vertex : hist) {
 				out.writeLong(vertex);
 			}
@@ -88,7 +92,7 @@ public class SmallWorld {
 
 		public void readFields(DataInput in) throws IOException {
     		dest = in.readLong();
-    		int size = in.readLong();
+    		int size = in.readInt();
     		hist = new HashSet<Long>();
     		for (int i=0; i<size; i++) {
     			hist.add(in.readLong());
@@ -98,7 +102,7 @@ public class SmallWorld {
 		public String toString() {
 			String out = "(" + dest + ", [";
 			for (long vertex : hist) {
-				out += vertex;
+				out += vertex + ",";
 			}
 			return out + "])";
 		}
@@ -125,8 +129,7 @@ public class SmallWorld {
 				reader.close();
 				denom = Long.decode(denomStr);
 			} catch (IOException ioe) {
-				System.err
-						.println("IOException reading denom from distributed cache");
+				System.err.println("IOException reading denom from distributed cache");
 				System.err.println(ioe.toString());
 			}
 		}
@@ -151,6 +154,7 @@ public class SmallWorld {
 				Context context) throws IOException, InterruptedException {
 			for (StateWritable value : values) {
 				context.write(key, value);
+				System.out.println("\n format: ("+key+", "+value+")");
 			}
 		}
 	}
@@ -163,14 +167,14 @@ public class SmallWorld {
 				throws IOException, InterruptedException {
 			long dest = value.dest;
 			HashSet<Long> hist = value.hist;
-			if (!hist.contains(dest) && hist.size > 0 && hist.size <= MAX_ITERATIONS) {
+			if (!hist.contains(dest) && hist.size() > 0 && hist.size() <= MAX_ITERATIONS) {
 				hist.add(dest);
-				context.write(new LongWritable(dest), new StateWritable(-1, hist));
+				context.write(new LongWritable(dest), new StateWritable(hist));
 				context.getCounter(ValueUse.VISITED).increment(1);
+				System.out.println("\n map advance: ("+dest+", "+new StateWritable(hist)+")");
 			}
-			else {
-				context. write(key, new StateWritable(dest, new HashSet<Long>()));
-			}
+			context.write(key, new StateWritable(dest));
+			System.out.println("\n map pass: ("+key+", "+new StateWritable(dest)+")");
 		}
 	}
 
@@ -182,13 +186,15 @@ public class SmallWorld {
 			ArrayList<Long> dests = new ArrayList<Long>();
 			
 			for (StateWritable value : values) {
-				if (value.dest > 0) dests.add(value.dest);
+				if (value.dest > -1) dests.add(value.dest);
 				if (value.hist.size() > 0) hists.add(value.hist);
 			}
 			
-			for (long dest : dests) {
-				for (HashSet<Long> hist : hists) {
+			for (HashSet<Long> hist : hists) {
+				if (hist.size() == 0) context.write(key)
+				for (long dest : dests) {
 					context.write(key, new StateWritable(dest, hist));
+					System.out.println("\n reduce: ("+key+", "+new StateWritable(dest, hist)+")");
 				}
 			}
 		}
@@ -220,7 +226,7 @@ public class SmallWorld {
 
 		// Set denom from command line arguments
 		shareDenom(args[2], conf);
-
+		
 		// Setting up mapreduce job to load in graph
 		Job job = new Job(conf, "load graph");
 		job.setJarByClass(SmallWorld.class);
@@ -268,14 +274,21 @@ public class SmallWorld {
 					+ "-out"));
 
 			job.waitForCompletion(true);
-			histogram.add(job.getCounters().findCounter(ValueUse.VISITED).getValue());
-			i++;
+			
+			long visited = job.getCounters().findCounter(ValueUse.VISITED).getValue();
+			//System.out.println("\n\n\n"+visited+"\n\n\n");
+			if (visited == 0) break;
+			else {
+				histogram.add(visited);
+				i++;
+			}
 		}
 
 		// Hapoop the histogram into a file.
-		writer = new SequenceFile.Writer(FileSystem.get(conf), conf, "./output.txt", Long, Long);
-		for (long i=0; i<histogram.size(); i++) {
-			writer.append(i, ArrayList.get(i));
+		//SequenceFile.Writer writer = new SequenceFile.Writer(FileSystem.get(conf), conf, "./output.txt", Long, Long);
+		for (int j=0; j<histogram.size(); j++) {
+			//writer.append(j, histogram.get(j));
+			System.out.println(j + ": " + histogram.get(j));
 		}
 	}
 }
