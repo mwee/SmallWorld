@@ -52,18 +52,30 @@ public class SmallWorld {
 
 	// Custom Writable subclass to keep track of nodes visited in the past.
 	public static class StateWritable implements Writable {
-		public HashSet<Long> dests;
+		public long dest;
 		public HashSet<Long> hist; // guaranteed to have size<MAX_ITERATIONS;
 									// even smaller
 									// on average due to small world property
 
-		public StateWritable(HashSet<Long> dests, HashSet<Long> hist) {
-			this.dests = dests;
+		public StateWritable(long dest, HashSet<Long> hist) {
+			this.dest = dest;
 			this.hist = hist;
+		}
+
+		public StateWritable(long dest) {
+    		this(dest, new HashSet<Long>());
+    	}
+
+		public StateWritable(HashSet<Long> hist) {
+			this(-1L, hist);
 		}
 		
 		public StateWritable() {
-			this(new HashSet<Long>(), new HashSet<Long>());
+			this(-1L, new HashSet<Long>());
+		}
+
+		public void setDest(long dest) {
+			this.dest = dest;
 		}
 
 		public void addHist(long vertex) {
@@ -71,10 +83,7 @@ public class SmallWorld {
 		}
 
 		public void write(DataOutput out) throws IOException {
-			out.writeInt(dests.size());
-			for (long child : dests) {
-				out.writeLong(child);
-			}
+			out.writeLong(dest);
 			out.writeInt(hist.size());
 			for (long vertex : hist) {
 				out.writeLong(vertex);
@@ -82,23 +91,16 @@ public class SmallWorld {
 		}
 
 		public void readFields(DataInput in) throws IOException {
-			int size = in.readInt();
-			dests = new HashSet<Long>();
-    		for (int i=0; i<size; i++) {
-    			dests.add(in.readLong());
-    		}
-    		
-    		size = in.readInt();
+    		dest = in.readLong();
+    		int size = in.readInt();
     		hist = new HashSet<Long>();
-    		for (i=0; i<size; i++) {
+    		for (int i=0; i<size; i++) {
     			hist.add(in.readLong());
     		}
     	}
 
 		public String toString() {
-			String out = " ";
-			if (dests.size() > 0) out += "has stuff";
-			out += ", [";
+			String out = "(" + dest + ", [";
 			for (long vertex : hist) {
 				out += vertex + ",";
 			}
@@ -144,16 +146,13 @@ public class SmallWorld {
 		public void reduce(LongWritable key, Iterable<LongWritable> dests,
 				Context context) throws IOException, InterruptedException {
 			HashSet<Long> hist = new HashSet<Long>();
-			HashSet<Long> destList = new HashSet<Long>();
 			if (Math.random() < 1.0 / denom) {
 				hist.add(key.get());
 				context.getCounter(ValueUse.VISITED).increment(1);
 			}
 			for (LongWritable dest : dests) {
-				destList.add(dest);
-			}
-			context.write(key, new StateWritable(destList, hist));
-			//System.out.println("\n format output: ("+key+", "+new StateWritable(dest.get(), hist));
+				context.write(key, new StateWritable(dest.get(), hist));
+				//System.out.println("\n format output: ("+key+", "+new StateWritable(dest.get(), hist));
 			}
 		}
 	}
@@ -165,17 +164,15 @@ public class SmallWorld {
 		public void map(LongWritable key, StateWritable value, Context context)
 				throws IOException, InterruptedException {
 			//System.out.println("--------------------------\n map input: ("+key+", "+value+")");
+			long dest = value.dest;
 			HashSet<Long> hist = value.hist;
-			for (long dest : value.dests) {
-				if (!value.hist.contains(dest) && value.hist.size() > 0) {
-					hist.add(dest);
-					context.write(new LongWritable(dest), new StateWritable(new HashSet<Long>(), hist));
-				}
-			}
-			context.write(key, new StateWritable(value.dests, new HashSet<Long>()));
+			if (!hist.contains(dest) && hist.size() > 0 && hist.size() <= MAX_ITERATIONS) {
+				hist.add(dest);
+				context.write(new LongWritable(dest), new StateWritable(hist));
 				//System.out.println("\n map advance: ("+dest+", "+new StateWritable(hist)+")");
+			}
+			context.write(key, new StateWritable(dest));
 			//System.out.println("\n map pass: ("+key+", "+new StateWritable(dest)+")");
-			hist.clear();
 		}
 	}
 
@@ -187,23 +184,25 @@ public class SmallWorld {
 			HashSet<Long> dests = new HashSet<Long>();
 			
 			for (StateWritable value : values) {
-				if (value.dests.size > -1) dests = value.dests;
+				if (value.dest > -1) dests.add(value.dest);
 				if (value.hist.size() > 0) hists.add(value.hist);
 			}
 			
 			if (hists.size() == 0) {
-				context.write(key, new StateWritable(dests, new HashSet<Long>()));
-				//System.out.println("\n reduce pass: ("+key+", "+new StateWritable(dest)+")");
+				for (long dest : dests) {
+					context.write(key, new StateWritable(dest));
+					//System.out.println("\n reduce pass: ("+key+", "+new StateWritable(dest)+")");
+				}
 			}
 			else {
 				context.getCounter(ValueUse.VISITED).increment(1);
 				for (HashSet<Long> hist : hists) {
-					context.write(key, new StateWritable(dests, hist));
-					//System.out.println("\n reduce combine: ("+key+", "+new StateWritable(dest, hist)+")");
+					for (long dest : dests) {
+						if (!hist.contains(dest)) context.write(key, new StateWritable(dest, hist));
+						//System.out.println("\n reduce combine: ("+key+", "+new StateWritable(dest, hist)+")");
+					}
 				}
 			}
-			hists.clear();
-			dests.clear();
 		}
 	}
 
