@@ -108,7 +108,7 @@ public class SmallWorld {
 		}
 	}
 
-	/* MAPREDUCE CLASSSES */
+	/* MAPREDUCE CLASSES */
 
 	// Format mapper: converts values to the (destination, history) and randomly
 	// selects root nodes
@@ -146,9 +146,13 @@ public class SmallWorld {
 		public void reduce(LongWritable key, Iterable<LongWritable> dests,
 				Context context) throws IOException, InterruptedException {
 			HashSet<Long> hist = new HashSet<Long>();
-			if (Math.random() < 1.0 / denom) hist.add(key.get());
+			if (Math.random() < 1.0 / denom) {
+				hist.add(key.get());
+				context.getCounter(ValueUse.VISITED).increment(1);
+			}
 			for (LongWritable dest : dests) {
 				context.write(key, new StateWritable(dest.get(), hist));
+				//System.out.println("\n format output: ("+key+", "+new StateWritable(dest.get(), hist));
 			}
 		}
 	}
@@ -159,12 +163,12 @@ public class SmallWorld {
 			Mapper<LongWritable, StateWritable, LongWritable, StateWritable> {
 		public void map(LongWritable key, StateWritable value, Context context)
 				throws IOException, InterruptedException {
+			//System.out.println("--------------------------\n map input: ("+key+", "+value+")");
 			long dest = value.dest;
 			HashSet<Long> hist = value.hist;
 			if (!hist.contains(dest) && hist.size() > 0 && hist.size() <= MAX_ITERATIONS) {
 				hist.add(dest);
 				context.write(new LongWritable(dest), new StateWritable(hist));
-				context.getCounter(ValueUse.VISITED).increment(1);
 				//System.out.println("\n map advance: ("+dest+", "+new StateWritable(hist)+")");
 			}
 			context.write(key, new StateWritable(dest));
@@ -184,11 +188,19 @@ public class SmallWorld {
 				if (value.hist.size() > 0) hists.add(value.hist);
 			}
 			
-			for (long dest : dests) {
-				if (hists.size() == 0) context.write(key, new StateWritable(dest));
-				for (HashSet<Long> hist : hists) { 
-					context.write(key, new StateWritable(dest, hist));
-					//System.out.println("\n reduce: ("+key+", "+new StateWritable(dest, hist)+")");
+			if (hists.size() == 0) {
+				for (long dest : dests) {
+					context.write(key, new StateWritable(dest));
+					//System.out.println("\n reduce pass: ("+key+", "+new StateWritable(dest)+")");
+				}
+			}
+			else {
+				context.getCounter(ValueUse.VISITED).increment(1);
+				for (HashSet<Long> hist : hists) {
+					for (long dest : dests) { 
+						context.write(key, new StateWritable(dest, hist));
+						//System.out.println("\n reduce combine: ("+key+", "+new StateWritable(dest, hist)+")");
+					}
 				}
 			}
 		}
@@ -242,10 +254,14 @@ public class SmallWorld {
 
 		// Actually starts job, and waits for it to finish
 		job.waitForCompletion(true);
+		
+		ArrayList<Long> histogram = new ArrayList<Long>();
+		long visited = job.getCounters().findCounter(ValueUse.VISITED).getValue();
+		histogram.add(visited);
+		//System.out.println("\n********"+visited+"*******\n");
 
 		// Repeats your BFS mapreduce
 		int i = 0;
-		ArrayList<Long> histogram = new ArrayList<Long>();
 		// Will need to change terminating conditions to respond to data
 		while (i < MAX_ITERATIONS) {
 			job = new Job(conf, "bfs" + i);
@@ -269,13 +285,12 @@ public class SmallWorld {
 
 			job.waitForCompletion(true);
 			
-			long visited = job.getCounters().findCounter(ValueUse.VISITED).getValue();
-			//System.out.println("\n\n\n"+visited+"\n\n\n");
+			visited = job.getCounters().findCounter(ValueUse.VISITED).getValue();
+			//System.out.println("\n********"+visited+"*******\n");
 			if (visited == 0) break;
-			else {
-				histogram.add(visited);
-				i++;
-			}
+			
+			histogram.add(visited);
+			i++;
 		}
 
 		// Hapoop the histogram into a file.
