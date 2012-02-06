@@ -1,11 +1,11 @@
 /*
   CS 61C Project1: Small World
 
-  Name:
-  Login:
+  Name: Nelson Zhang
+  Login: cs61c-kg
 
-  Name:
-  Login:
+  Name: Michael Wee
+  Login: cs61c-it
  */
 
 import java.io.BufferedReader;
@@ -197,8 +197,8 @@ public class SmallWorld {
 			else {
 				context.getCounter(ValueUse.VISITED).increment(1);
 				for (HashSet<Long> hist : hists) {
-					for (long dest : dests) { 
-						context.write(key, new StateWritable(dest, hist));
+					for (long dest : dests) {
+						if (!hist.contains(dest)) context.write(key, new StateWritable(dest, hist));
 						//System.out.println("\n reduce combine: ("+key+", "+new StateWritable(dest, hist)+")");
 					}
 				}
@@ -294,7 +294,7 @@ public class SmallWorld {
 		}
 
 		// Hapoop the histogram into a file.
-		//SequenceFile.Writer writer = new SequenceFile.Writer(FileSystem.get(conf), conf, "./output.txt", Long, Long);
+		//SequenceFile.Writer writer = SequenceFile.createWriter(FileSystem.get(conf), conf, new Path("./output.txt"), Long.class, Long.class);
 		for (int j=0; j<histogram.size(); j++) {
 			//writer.append(j, histogram.get(j));
 			System.out.println(j + ": " + histogram.get(j));
