@@ -45,82 +45,83 @@ public class SmallWorld {
 	// Skeleton code uses this to share denom cmd-line arg across cluster
 	public static final String DENOM_PATH = "denom.txt";
 
-	// Counter for visited nodes in each bfs iteration
+	// Counter for visited vertices in each bfs iteration
 	public static enum ValueUse {
 		VISITED
 	};
 
-	// Custom Writable subclass to keep track of nodes visited in the past.
+	
+	/** WRITABLE CLASSES **/
+	
+	// Custom Writable subclass, contains information about children
+	// and which searches have passed/are passing through the vertex.
 	public static class StateWritable implements Writable {
-		public long dest;
-		public HashSet<Long> hist; // guaranteed to have size<MAX_ITERATIONS;
-									// even smaller
-									// on average due to small world property
+		public HashMap<Long, Boolean> visitedBy; // sourceVertex: true/false (frontier/visited)
+		public ArrayList<Long> children; // list of children, built during FormatReduce
 
-		public StateWritable(long dest, HashSet<Long> hist) {
-			this.dest = dest;
-			this.hist = hist;
+		public StateWritable(HashMap<Long, Boolean> visitedBy, ArrayList<Long> children) {
+			this.visitedBy = visitedBy;
+			this.children = children;
 		}
 
-		public StateWritable(long dest) {
-    		this(dest, new HashSet<Long>());
+		public StateWritable(HashMap<Long, Boolean> visitedBy) {
+    		this(visitedBy, new ArrayList<Long>());
     	}
 
-		public StateWritable(HashSet<Long> hist) {
-			this(-1L, hist);
+		public StateWritable(ArrayList<Long> children) {
+			this(new HashMap<Long, Boolean>(), children);
 		}
 		
 		public StateWritable() {
-			this(-1L, new HashSet<Long>());
-		}
-
-		public void setDest(long dest) {
-			this.dest = dest;
-		}
-
-		public void addHist(long vertex) {
-			hist.add(vertex);
+			this(new HashMap<Long, Boolean>(), new ArrayList<Long>());
 		}
 
 		public void write(DataOutput out) throws IOException {
-			out.writeLong(dest);
-			out.writeInt(hist.size());
-			for (long vertex : hist) {
-				out.writeLong(vertex);
+			out.writeLong(children.size());
+			for (int i=0; i<children.size(); i++) {
+				out.writeLong(children.get(i));
+			}
+			out.writeLong(visitedBy.size());
+			for (long key : visitedBy.keySet()) {
+				out.writeLong(key);
+				out.writeBoolean(visitedBy.get(key));
 			}
 		}
 
 		public void readFields(DataInput in) throws IOException {
-    		dest = in.readLong();
-    		int size = in.readInt();
-    		hist = new HashSet<Long>();
+    		long size = in.readLong();
+    		this.children = new ArrayList<Long>();
+    		this.visitedBy = new HashMap<Long, Boolean>();
     		for (int i=0; i<size; i++) {
-    			hist.add(in.readLong());
+    			this.children.add(in.readLong());
+    		}
+    		size = in.readLong();
+    		for (int i=0; i<size; i++) {
+    			this.visitedBy.put(in.readLong(), in.readBoolean());
     		}
     	}
 
 		public String toString() {
-			String out = "(" + dest + ", [";
-			for (long vertex : hist) {
-				out += vertex + ",";
-			}
-			return out + "])";
+			return "(" + visitedBy.toString() + ", " + children.toString() + ")";
 		}
 	}
 
-	/* MAPREDUCE CLASSES */
+	
+	
+	/** MAPREDUCE CLASSES **/
 
-	// Format mapper: converts values to the (destination, history) and randomly
-	// selects root nodes
+	// Format mapper: move along, nothing to see here.
 	public static class FormatMap extends
 			Mapper<LongWritable, LongWritable, LongWritable, LongWritable> {
-		public void map(LongWritable key, LongWritable dest, Context context)
+		public void map(LongWritable key, LongWritable child, Context context)
                 throws IOException, InterruptedException {
-        	context.write(key, dest);
+        	context.write(key, child);
         }
 	}
 
-	// Format reducer: move along, nothing to see here.
+	
+	// Format reducer: converts values to the (children, history) 
+	// and randomly selects root nodes
 	public static class FormatReduce extends
 			Reducer<LongWritable, LongWritable, LongWritable, StateWritable> {
 		public long denom;
@@ -143,69 +144,82 @@ public class SmallWorld {
 			}
 		}
 
-		public void reduce(LongWritable key, Iterable<LongWritable> dests,
+		public void reduce(LongWritable key, Iterable<LongWritable> values,
 				Context context) throws IOException, InterruptedException {
-			HashSet<Long> hist = new HashSet<Long>();
+			ArrayList<Long> children = new ArrayList<Long>();
+			HashMap<Long, Boolean> visitedBy = new HashMap<Long, Boolean>();
+			// At random, tag this vertex as frontier in a search 
+			// starting from itself, i.e. it is a root vertex.
 			if (Math.random() < 1.0 / denom) {
-				hist.add(key.get());
+				visitedBy.put(key.get(), true);
 				context.getCounter(ValueUse.VISITED).increment(1);
 			}
-			for (LongWritable dest : dests) {
-				context.write(key, new StateWritable(dest.get(), hist));
-				//System.out.println("\n format output: ("+key+", "+new StateWritable(dest.get(), hist));
+			for (LongWritable child : values) {
+				children.add(child.get());
 			}
+			context.write(key, new StateWritable(visitedBy, children));
 		}
 	}
 
-	// BFS Mapper: advance the frontier by one level and keep count of nodes
-	// visited in the process.
+	
+	// BFS mapper: advance the frontier by one level, and tag vertices accordingly
 	public static class BFSMap extends
 			Mapper<LongWritable, StateWritable, LongWritable, StateWritable> {
-		public void map(LongWritable key, StateWritable value, Context context)
+		public void map(LongWritable src, StateWritable value, Context context)
 				throws IOException, InterruptedException {
-			//System.out.println("--------------------------\n map input: ("+key+", "+value+")");
-			long dest = value.dest;
-			HashSet<Long> hist = value.hist;
-			if (!hist.contains(dest) && hist.size() > 0 && hist.size() <= MAX_ITERATIONS) {
-				hist.add(dest);
-				context.write(new LongWritable(dest), new StateWritable(hist));
-				//System.out.println("\n map advance: ("+dest+", "+new StateWritable(hist)+")");
+			HashMap<Long, Boolean> visitedBy = new HashMap<Long, Boolean>();
+			// Each child vertex inherits the frontier states w.r.t. each root
+			for (long key : value.visitedBy.keySet()) {
+				if (value.visitedBy.get(key)) {
+					visitedBy.put(key, true);
+					value.visitedBy.put(key, false);
+				}
 			}
-			context.write(key, new StateWritable(dest));
-			//System.out.println("\n map pass: ("+key+", "+new StateWritable(dest)+")");
+			// Advance the frontier
+			StateWritable inherited = new StateWritable(visitedBy);
+			for (long child : value.children) {
+				context.write(new LongWritable(child), inherited);
+			}
+			// Also pass on the input kv-pair, so reducer can receive
+			// information about each vertex's children
+			context.write(src, value);
 		}
 	}
 
+	
+	// BFS reducer: Gets a newly advanced frontier vertex and its inherited
+	// frontier states, as well as the list of children for this vertex.
 	public static class BFSReduce extends
 			Reducer<LongWritable, StateWritable, LongWritable, StateWritable> {
-		public void reduce(LongWritable key, Iterable<StateWritable> values,
+		public void reduce(LongWritable src, Iterable<StateWritable> values,
 				Context context) throws IOException, InterruptedException {
-			ArrayList<HashSet<Long>> hists = new ArrayList<HashSet<Long>>();
-			HashSet<Long> dests = new HashSet<Long>();
-			
+			HashMap<Long, Boolean> visitedBy = new HashMap<Long, Boolean>();
+			ArrayList<Long> children = new ArrayList<Long>();
+			long frontiers = 0;
+			// Vertex could have been advanced into from multiple parent vertices,
+			// so combine the frontier states.
 			for (StateWritable value : values) {
-				if (value.dest > -1) dests.add(value.dest);
-				if (value.hist.size() > 0) hists.add(value.hist);
-			}
-			
-			if (hists.size() == 0) {
-				for (long dest : dests) {
-					context.write(key, new StateWritable(dest));
-					//System.out.println("\n reduce pass: ("+key+", "+new StateWritable(dest)+")");
-				}
-			}
-			else {
-				context.getCounter(ValueUse.VISITED).increment(1);
-				for (HashSet<Long> hist : hists) {
-					for (long dest : dests) {
-						if (!hist.contains(dest)) context.write(key, new StateWritable(dest, hist));
-						//System.out.println("\n reduce combine: ("+key+", "+new StateWritable(dest, hist)+")");
+				if (value.children.size() > 0) children = value.children;
+				for (long key : value.visitedBy.keySet()) {
+					if (visitedBy.containsKey(key)) {
+						// If there exists a false value for the frontier state w.r.t. a
+						// root node, then it must have visited the vertex already, and it
+						// should not be a frontier vertex!
+						visitedBy.put(key, (visitedBy.get(key) && value.visitedBy.get(key)));
 					}
+					else visitedBy.put(key, value.visitedBy.get(key));
 				}
 			}
+			// Count the number of searches for which this is a frontier vertex
+			for (long key : visitedBy.keySet()) {
+				if (visitedBy.get(key)) frontiers++; 
+			}
+			context.write(src, new StateWritable(visitedBy, children));
+			context.getCounter(ValueUse.VISITED).increment(frontiers); // Add to the distance count
 		}
 	}
 
+	
 	// Shares denom argument across the cluster via DistributedCache
 	public static void shareDenom(String denomStr, Configuration conf) {
 		try {
@@ -225,6 +239,7 @@ public class SmallWorld {
 		}
 	}
 
+	
 	public static void main(String[] rawArgs) throws Exception {
 		GenericOptionsParser parser = new GenericOptionsParser(rawArgs);
 		Configuration conf = parser.getConfiguration();
@@ -255,14 +270,13 @@ public class SmallWorld {
 		// Actually starts job, and waits for it to finish
 		job.waitForCompletion(true);
 		
+		// Create the histogram, and insert the # of root vertices (distance 0)
 		ArrayList<Long> histogram = new ArrayList<Long>();
 		long visited = job.getCounters().findCounter(ValueUse.VISITED).getValue();
 		histogram.add(visited);
-		//System.out.println("\n********"+visited+"*******\n");
 
 		// Repeats your BFS mapreduce
 		int i = 0;
-		// Will need to change terminating conditions to respond to data
 		while (i < MAX_ITERATIONS) {
 			job = new Job(conf, "bfs" + i);
 			job.setJarByClass(SmallWorld.class);
@@ -285,19 +299,21 @@ public class SmallWorld {
 
 			job.waitForCompletion(true);
 			
+			// Get the # of vertices at this distance
 			visited = job.getCounters().findCounter(ValueUse.VISITED).getValue();
-			//System.out.println("\n********"+visited+"*******\n");
-			if (visited == 0) break;
+			if (visited == 0) break; // if none visited, graph has been fully traversed!
 			
+			// Update the histogram
 			histogram.add(visited);
 			i++;
 		}
 
 		// Hapoop the histogram into a file.
-		//SequenceFile.Writer writer = SequenceFile.createWriter(FileSystem.get(conf), conf, new Path("./output.txt"), Long.class, Long.class);
+		BufferedWriter out = new BufferedWriter(new FileWriter("OUTPUT.txt"));
 		for (int j=0; j<histogram.size(); j++) {
-			//writer.append(j, histogram.get(j));
-			System.out.println(j + ": " + histogram.get(j));
+			out.write("Dist " + j + ": " + histogram.get(j) + " vertices\n");
+			System.out.println("Dist " + j + ": " + histogram.get(j) + " vertices");
 		}
+		out.close();
 	}
 }
