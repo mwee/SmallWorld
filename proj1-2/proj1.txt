@@ -1,0 +1,119 @@
+Michael Wee and Nelson Zhang cs61c-it and cs61c-kg
+
+1. Run your code on hollywood.sequ with denom=100000 on clusters of size 6, 9, and 12. How long does each
+take? How many searches did each perform? How many reducers did you use for each? (Read the rest of the
+questions to see what other data you will need)
+
+For a cluster of size 6: 16m10s For a cluster of size 9: 14m9s For a cluster of size 12: 13m20s
+
+We used a denom of 100 000.
+
+The cluster of size 6 performed 11 searches. The cluster of size 9 performed 10 searches. The cluster of
+size 12 performed 14 searches.
+
+We used 24 reducers for each.
+
+2. For the Hollywood dataset, at what distance are the 50th, 90th, and 95 percentiles?
+
+50th percentile: distance 4 90th percentile: distance 5 95th percentile: distance 5
+
+3. What was the mean processing rate (MB/s) for 6, 9, and 12 instances? You can approximate the data size
+to be (input size) * (# of searches).
+
+Input size = 2,788,422,324 bytes = 2788.422324 MBs
+
+Data size = 2788.422324 * 11 = 30672.645564 MBs
+
+Mean processing rates:
+
+6 instances:
+
+16 * 60 + 10 = 970s
+
+30672.645564 / 970 = 31.6212841 MBs/s
+
+9 instances:
+
+14 * 60 + 9 = 849s
+
+30672.645564 / 849 = 36.1279689 MBs/s
+
+12 instances:
+
+13 * 60 + 20 = 800s
+
+30672.645564 / 800 = 38.340807 MBs/s
+
+4. What was the speedup for 9 and 12 instances relative to 6 instances? What do you conclude about how
+well Hadoop parallelizes your work? Is this a case of strong scaling or weak scaling? Why or why not?
+
+In terms of time and data processing, the 9 instances had a 14.25% (1.425 times) speedup and the 12
+instances had a 21.25% (1.2125 times) speedup.
+
+Hadoop modestly parallelizes my work because in the case of the 9 instances, we increased the number of
+instances by 50% but only received a 14.25% speedup. When we increase the number of instances to 12, a
+100% increase, we only gain a 21.25% speedup.
+
+This is an example of strong scaling because we increased the number of instances while the total problem
+size remained the same.
+
+5. What is the purpose of including the combiner in the histogram skeleton code? Does its inclusion affect
+performance much? Why or why not? Could you have used a combiner in your other mapreduces? Why or why not?
+
+The purpose of using a combiner is to "pre-reduce" output from each mapper before it is sent to the
+reducer. This improves performance in cases where a mapper will emit pairs under the same key, since the
+combiner will collect those pairs together and save bandwidth between map and reduce.
+
+In our algorithm, the mapper does not emit more than one pair for each key (one for the parent vertex, and
+one for each child vertex, which is a unique set for each parent), so using a combiner would not have
+increased performance.
+
+6. What was the price per GB processed for each cluster size? (Recall that an extra-large instance costs
+$0.68 per hour, rounded up to the nearest hour.)
+
+In terms of data size:
+
+30.672645564 GB / $18.36 = $0.60 / GB
+
+In terms of total data processed (added up across jobs):
+
+6 nodes: $0.68*6 / 131 GB = $0.03/GB
+9 nodes: $0.68*9 / 142 GB = $0.04/GB
+12 nodes: $0.68*12/ 137 GB = $0.06/GB
+
+7. How many dollars in EC2 credits did you use to complete this project? If ec2-usage returns bogus
+values, please try to approximate (and indicate this).
+
+Approximation: 0.68 * (6 + 9 + 12) = $18.36
+
+8. Extra Credit: Compare the performance of your code to the reference. Compute the same results as
+problems 1, 3, and 4 above with the reference code. How much faster or slower is your implementation
+relative to the reference?
+
+The reference code ran for 32m26s, 28m57s, and 27m5s respectively for the calls on 6, 9, and 12 instances.
+
+Our implementation ran 1946/970 = 2.23678161 times faster on 6 instances, 1737/849 = 2.0459364 times
+faster on 9 instances, and 1625/800 = 2.03125 times faster on 12 instances.
+
+We used a denom of 100 000.
+
+The cluster of size 6 performed 10 searches. The cluster of size 9 performed 12 searches. The cluster of
+size 12 performed 11 searches.
+
+For the reference code, we have the following mean processing rates:
+
+30672.645564 MBs / 1946s = 15.7618939 MBs/s
+30672.645564 MBs / 1737s = 17.6584027 MBs/s
+30672.645564 MBs / 1625s = 18.8754742 MBs/s
+
+which are all less efficient than our own mean processing rates.
+
+9. Optional: What did you think of this project? This is the first time it has been offered, but hopefully
+not the last. What did you like, not like, or think we should change?
+
+I think it was amazing that we got to do real mapreduce programming and actually run it on Amazon EC2. I'm
+sure this is an experience that few CS students around the world cna have. I liked how we were to
+completely design and implement our own way of solving the Small World problem. I liked how Piazza was
+available so TAs and fellow students could help each other out on common problems, such as the notorious
+IOException error. We did spend hours and hours iterating through and implementing different algorithms
+because of various problems we ran into, most of all the IOException.
